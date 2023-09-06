@@ -216,6 +216,7 @@ impl ViewportBlueprint<'_> {
         let entities = group.entities.clone();
         let group_name = group.display_name.clone();
         let group_is_visible = group.properties_projected.visible && space_view_visible;
+        let mut child_made_visible = false;
 
         for entity_path in &entities {
             if entity_path.is_root() {
@@ -240,14 +241,20 @@ impl ViewportBlueprint<'_> {
                 .get(entity_path);
             let name = entity_path.iter().last().unwrap().to_string();
             let label = format!("🔹 {name}");
+
+            let mut inherited_visibility = group_is_visible && properties.visible;
             let response = ListItem::new(ctx.re_ui, label)
                 .selected(is_selected)
                 .subdued(!group_is_visible || !properties.visible)
                 .force_hovered(is_item_hovered)
                 .with_buttons(|re_ui, ui| {
                     let vis_response =
-                        visibility_button_ui(re_ui, ui, group_is_visible, &mut properties.visible);
+                        visibility_button_ui(re_ui, ui, true, &mut inherited_visibility);
                     if vis_response.changed() {
+                        properties.visible = inherited_visibility;
+                        if properties.visible {
+                            child_made_visible = true;
+                        }
                         space_view
                             .contents
                             .data_blueprints_individual()
@@ -287,7 +294,8 @@ impl ViewportBlueprint<'_> {
             let mut remove_group = false;
             let default_open = Self::default_open_for_group(child_group);
 
-            let mut child_group_visible = child_group.properties_individual.visible;
+            let mut child_group_visible = child_group.properties_individual.visible
+                && child_group.properties_projected.visible;
             let response = ListItem::new(ctx.re_ui, child_group.display_name.clone())
                 .selected(is_selected)
                 .subdued(!child_group_visible || !group_is_visible)
@@ -295,13 +303,18 @@ impl ViewportBlueprint<'_> {
                 .with_icon(&re_ui::icons::CONTAINER)
                 .with_buttons(|re_ui, ui| {
                     let vis_response =
-                        visibility_button_ui(re_ui, ui, group_is_visible, &mut child_group_visible);
+                        visibility_button_ui(re_ui, ui, true, &mut child_group_visible);
 
                     let response = remove_button_ui(
                         re_ui,
                         ui,
                         "Remove Group and all its children from the Space View",
                     );
+
+                    if vis_response.changed() {
+                        // child_group.properties_individual.visible = child_group_visible;
+                        child_made_visible = true;
+                    }
                     if response.clicked() {
                         remove_group = true;
                     }
@@ -336,6 +349,14 @@ impl ViewportBlueprint<'_> {
             if remove_group {
                 space_view.contents.remove_group(*child_group_handle);
                 space_view.entities_determined_by_user = true;
+            }
+        }
+
+        if child_made_visible {
+            if let Some(group) = space_view.contents.group_mut(group_handle) {
+                println!("child made visible");
+                println!("{}", &group.display_name);
+                group.properties_individual.visible = true;
             }
         }
     }
